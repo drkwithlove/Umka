@@ -1,3 +1,4 @@
+from database import add_message, get_history, reset_history
 from keep_alive import keep_alive
 import telebot
 import requests
