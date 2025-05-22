@@ -31,12 +31,9 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 print("Бот стартовал")
 
-# ---------- Файлы ----------
-HISTORY_FILE = "conversation.json"
-PROFILE_FILE = "profile.json"
-MAX_HISTORY_LENGTH = 20
-
 # ---------- Профиль ----------
+PROFILE_FILE = "profile.json"
+
 def load_profile():
     try:
         with open(PROFILE_FILE, "r") as f:
@@ -55,7 +52,7 @@ def save_profile(profile):
 
 profile = load_profile()
 
-# ---------- История ----------
+# ---------- Системный промпт ----------
 system_prompt = {
     "role": "system",
     "content": f"""
@@ -70,21 +67,6 @@ system_prompt = {
 """
 }
 
-def load_history():
-    try:
-        with open(HISTORY_FILE, 'r') as f:
-            data = json.load(f)
-            return [system_prompt] + data
-    except:
-        return [system_prompt]
-
-def save_history(history):
-    trimmed = [msg for msg in history if msg["role"] != "system"][-MAX_HISTORY_LENGTH:]
-    with open(HISTORY_FILE, 'w') as f:
-        json.dump(trimmed, f, ensure_ascii=False, indent=2)
-
-conversation_history = load_history()
-
 # ---------- Запрос к OpenRouter ----------
 def ask_openrouter():
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -94,7 +76,7 @@ def ask_openrouter():
     }
     payload = {
         "model": "openai/gpt-3.5-turbo",
-        "messages": conversation_history
+        "messages": [system_prompt] + get_history()
     }
     response = requests.post(url, json=payload, headers=headers)
     if response.status_code == 200:
@@ -105,9 +87,7 @@ def ask_openrouter():
 # ---------- Команды ----------
 @bot.message_handler(commands=['reset'])
 def reset_memory(message):
-    global conversation_history
-    conversation_history = [system_prompt]
-    save_history(conversation_history)
+    reset_history()
     bot.send_message(message.chat.id, "🧠 Память Умки очищена!")
 
 @bot.message_handler(commands=['profile'])
@@ -146,17 +126,16 @@ def handle_message(message):
         return
 
     user_input = message.text
-    conversation_history.append({"role": "user", "content": user_input})
+    add_message("user", user_input)
     bot.send_chat_action(message.chat.id, 'typing')
 
     try:
         reply = ask_openrouter()
-        conversation_history.append({"role": "assistant", "content": reply})
-        save_history(conversation_history)
+        add_message("assistant", reply)
         bot.send_message(message.chat.id, reply)
     except Exception as e:
         notify_error(message.chat.id, e)
 
 # ---------- Запуск ----------
 keep_alive()
-bot.polling()
+bot.infinity_polling()
