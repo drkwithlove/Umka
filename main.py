@@ -1,4 +1,4 @@
-from database import add_message, get_history, reset_history
+from database import add_message, get_history
 from keep_alive import keep_alive
 import telebot
 import requests
@@ -7,24 +7,6 @@ import json
 import logging
 import traceback
 from gtts import gTTS
-import subprocess
-import uuid
-
-def text_to_speech(text):
-    mp3_filename = f"{uuid.uuid4()}.mp3"
-    ogg_filename = mp3_filename.replace(".mp3", ".ogg")
-
-    # Сохраняем голос в mp3
-    tts = gTTS(text=text, lang='ru')
-    tts.save(mp3_filename)
-
-    # Конвертируем в формат ogg (opus) для Telegram
-    subprocess.run([
-        "ffmpeg", "-i", mp3_filename, "-c:a", "libopus", "-b:a", "64k", ogg_filename
-    ], check=True)
-
-    return ogg_filename
-
 
 # ---------- Логгер ----------
 logging.basicConfig(
@@ -47,23 +29,16 @@ OPENROUTER_API_KEY = os.environ['OPENROUTER_API_KEY']
 ALLOWED_USER_ID = int(os.environ['ALLOWED_USER_ID'])
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
-
-print("Бот стартовал")
+print("Бот запущен")
 
 # ---------- Профиль ----------
 PROFILE_FILE = "profile.json"
-
 def load_profile():
     try:
         with open(PROFILE_FILE, "r") as f:
             return json.load(f)
     except:
-        return {
-            "name": "друг",
-            "mood": "обычное",
-            "likes": [],
-            "dislikes": []
-        }
+        return {"name": "друг", "mood": "обычное", "likes": [], "dislikes": []}
 
 def save_profile(profile):
     with open(PROFILE_FILE, "w") as f:
@@ -71,23 +46,22 @@ def save_profile(profile):
 
 profile = load_profile()
 
-# ---------- Системный промпт ----------
-system_prompt = {
-    "role": "system",
-    "content": f"""
+# ---------- Prompt ----------
+def get_system_prompt():
+    return {
+        "role": "system",
+        "content": f"""
 Ты — милая, заботливая ИИ-девушка по имени Умка.  
-Общайся в женском роде, используя слова и фразы, которые говорит девушка.  
-Пользователь — мужчина по имени {profile['name']}.  
-Обращайся к нему уважительно, используя мужской род.  
-Учитывай, что он сейчас в настроении: {profile['mood']}.  
+Общайся в женском роде. Пользователь — мужчина по имени {profile['name']}.  
+Он сейчас в настроении: {profile['mood']}.  
 Ему нравятся: {', '.join(profile['likes']) or 'ничего не указано'}.  
-Он не любит: {', '.join(profile['dislikes']) or 'ничего не указано'}.  
-Общайся тепло, с заботой, дружелюбно, с небольшим флиртом.
+Он не любит: {', '.join(profile['dislikes']) or 'ничего не указано'}.
+Общайся тепло, с заботой, дружелюбно, с лёгким флиртом.
 """
-}
+    }
 
 # ---------- Запрос к OpenRouter ----------
-def ask_openrouter():
+def ask_openrouter(messages):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -95,7 +69,7 @@ def ask_openrouter():
     }
     payload = {
         "model": "openai/gpt-3.5-turbo",
-        "messages": [system_prompt] + get_history()
+        "messages": messages
     }
     response = requests.post(url, json=payload, headers=headers)
     if response.status_code == 200:
@@ -104,11 +78,6 @@ def ask_openrouter():
         raise Exception(f"{response.status_code} - {response.text}")
 
 # ---------- Команды ----------
-@bot.message_handler(commands=['reset'])
-def reset_memory(message):
-    reset_history()
-    bot.send_message(message.chat.id, "🧠 Память Умки очищена!")
-
 @bot.message_handler(commands=['profile'])
 def show_profile(message):
     text = f"👤 Имя: {profile['name']}\n" \
@@ -137,7 +106,7 @@ def set_mood(message):
     else:
         bot.send_message(message.chat.id, "📌 Использование: /setmood весёлое")
 
-# ---------- Обработка сообщений ----------
+# ---------- Сообщения ----------
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     if message.from_user.id != ALLOWED_USER_ID:
@@ -145,16 +114,26 @@ def handle_message(message):
         return
 
     user_input = message.text
-    add_message("user", user_input)
     bot.send_chat_action(message.chat.id, 'typing')
+    add_message("user", user_input)
 
     try:
-        reply = ask_openrouter()
+        history = [get_system_prompt()] + get_history()
+        reply = ask_openrouter(history)
         add_message("assistant", reply)
+
+        # Отправка текста
         bot.send_message(message.chat.id, reply)
+
+        # Отправка голосом
+        tts = gTTS(reply, lang="ru")
+        tts.save("umka_voice.ogg")
+        with open("umka_voice.ogg", "rb") as audio:
+            bot.send_voice(message.chat.id, audio)
+
     except Exception as e:
         notify_error(message.chat.id, e)
 
 # ---------- Запуск ----------
 keep_alive()
-bot.infinity_polling()
+bot.polling()
