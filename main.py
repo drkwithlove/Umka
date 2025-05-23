@@ -6,6 +6,25 @@ import os
 import json
 import logging
 import traceback
+from gtts import gTTS
+import subprocess
+import uuid
+
+def text_to_speech(text):
+    mp3_filename = f"{uuid.uuid4()}.mp3"
+    ogg_filename = mp3_filename.replace(".mp3", ".ogg")
+
+    # Сохраняем голос в mp3
+    tts = gTTS(text=text, lang='ru')
+    tts.save(mp3_filename)
+
+    # Конвертируем в формат ogg (opus) для Telegram
+    subprocess.run([
+        "ffmpeg", "-i", mp3_filename, "-c:a", "libopus", "-b:a", "64k", ogg_filename
+    ], check=True)
+
+    return ogg_filename
+
 
 # ---------- Логгер ----------
 logging.basicConfig(
