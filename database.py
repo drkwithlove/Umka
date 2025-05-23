@@ -1,41 +1,48 @@
 import sqlite3
-import os
+from datetime import datetime
 
 DB_FILE = "memory.db"
 
+# Инициализация базы данных
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""
+    c.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL
+            role TEXT,
+            content TEXT,
+            timestamp TEXT
         )
-    """)
+    ''')
     conn.commit()
     conn.close()
 
+# Добавление сообщения
 def add_message(role, content):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO messages (role, content) VALUES (?, ?)", (role, content))
+    c.execute('INSERT INTO messages (role, content, timestamp) VALUES (?, ?, ?)', 
+              (role, content, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
 
-def get_history(limit=100):
+# Получение всей истории
+def get_history():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT role, content FROM messages ORDER BY id DESC LIMIT ?", (limit,))
+    c.execute('SELECT role, content FROM messages ORDER BY id ASC')
     rows = c.fetchall()
     conn.close()
-    return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+    return [{"role": role, "content": content} for role, content in rows]
 
+# Очистка истории
 def reset_history():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("DELETE FROM messages")
+    c.execute('DELETE FROM messages')
     conn.commit()
     conn.close()
 
+# Инициализация при запуске
 init_db()
